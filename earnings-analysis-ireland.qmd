@@ -1,0 +1,561 @@
+---
+title: "Weekly and Annual Earnings (2011-2023)"
+author: "Debangshu Baidya"
+format: html
+toc: true
+---
+
+## Overview
+In this analysis, I am exploring trends and patterns in earnings data, focusing on both weekly and annual earnings across various sectors, age groups, and years. The data includes multiple datasets on earning estimates, percentiles, and geographical distributions. I started by processing and cleaning the data, selecting relevant columns and filtering out unwanted metrics. Then, I aggregated the earnings data by sector, year, and age group to provide a clear picture of the trends in mean weekly and annual earnings over time. I also performed descriptive statistics to understand the distribution and variation in earnings. The analysis includes an interactive visualization of earnings trends and a heatmap of earnings percentiles, helping to understand how earnings vary over time and across different percentiles. Additionally, I used generalized additive models (GAM) and generalized linear models (GLM) to predict annual earnings based on weekly earnings, age group, and sector. Finally, I conducted a geographical analysis, mapping total earnings across counties in 2011 and 2021. The overarching question I am trying to answer is: How do earnings trends vary across sectors, age groups, and regions, and what factors most influence these trends?
+
+## Process Flow
+```{mermaid}
+graph LR
+    A(Data Collection)
+    B(Data Ingestion)
+    C(Data Preparation )
+    D(Data Aggregation)
+    E(Data Computation)
+    F(Descriptive Analysis)
+    G(Inferential Analysis)
+    H(Geographical Analysis)
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    E --> G
+    E --> H
+
+    style A fill:#f9d5e5,stroke:#eeac99
+    style B fill:#cce5ff,stroke:#99c2ff
+    style C fill:#d4f4dd,stroke:#a3d9b1
+    style D fill:#fff3cd,stroke:#ffeb99
+    style E fill:#e2cbf7,stroke:#c299ff
+    style F fill:#cce5ff,stroke:#99c2ff
+    style G fill:#cce5ff,stroke:#99c2ff
+    style H fill:#cce5ff,stroke:#99c2ff
+```
+
+## Table Relationships
+```{mermaid}
+erDiagram
+    weekly_earning_estimates {
+        string Sector
+        int Calender_Year
+        string Age_Group
+        float Euros
+    }
+    annual_earning_estimates {
+        string Sector
+        int Calender_Year
+        string Age_Group
+        float Euros
+    }
+    weekly_earning_percentiles {
+        int Calender_Year
+        string Percentile
+        string Age_Group
+        float Euros
+    }
+    annual_earning_percentiles {
+        int Calender_Year
+        string Percentile
+        string Age_Group
+        float Euros
+    }
+
+    weekly_earning_estimates ||--o| annual_earning_estimates : "Sector, Calender_Year, Age_Group"
+    weekly_earning_percentiles ||--o| annual_earning_percentiles : "Calender_Year, Percentile, Age_Group"
+    weekly_earning_estimates ||--o| weekly_earning_percentiles : "Calender_Year, Age_Group"
+    annual_earning_estimates ||--o| annual_earning_percentiles : "Calender_Year, Age_Group"
+
+```
+
+## Data Collection
+This data is sourced from [Click here](https://data.cso.ie)
+
+## Data Ingestion
+```{r}
+library(leaflet)
+library(sf)
+library(readr)
+library(dplyr)   
+library(ggplot2)
+library(mgcv)    
+library(psych)   
+library(plotly)
+library(htmltools)
+library(RColorBrewer)
+data_1 <- read_csv("DDA02.20250317T140346.csv")
+data_2 <- read_csv("DDA11.20250317T170356.csv")
+data_3<- read_csv("DEA08.20250323T180312.csv")
+```
+
+## Data Preparation
+In this step we process the data into a form factor more suitable for our analysis
+
+### Dataset 1
+#### Selecting Relevant Columns
+```{r}
+earning_estimates <- data_1 %>% 
+  select(`Statistic Label`, Year, Sex, `NACE Rev 2 Sector`,`Age Group`,VALUE )
+```
+#### Renaming Columns
+```{r}
+earning_estimates <- earning_estimates  %>% rename( Metrics = `Statistic Label`,
+                                           Calender_Year = Year,
+                                           Sector = `NACE Rev 2 Sector`,
+                                           Age_Group =`Age Group`,
+                                           Euros = VALUE)
+```
+#### Filtering Columns
+```{r}
+earning_estimates <- earning_estimates %>% filter(!Metrics %in% c("Annual Change (Mean Weekly Earnings)", 
+                                                                  "Annual Change (Median Weekly Earnings)",
+                                                                  "Annual Change (Mean Annual Earnings)",
+                                                                  "Annual Change (Median Annual Earnings)",
+                                                                  "Median Weekly Earnings",
+                                                                  "Median Annual Earnings"
+                                                                  ))
+
+
+earning_estimates <- earning_estimates %>% filter(!Sex %in% c("Both sexes"))
+```
+
+### Dataset 2
+#### Renaming Columns
+```{r}
+earning_percentiles <- data_2  %>% rename( Metrics = `Statistic Label`,
+                                                Calender_Year = Year,
+                                                Age_Group =`Age Group`,
+                                                Euros = VALUE)
+```
+#### Filtering Columns
+```{r}
+earning_percentiles <- earning_percentiles %>% filter(!Metrics %in% c("Annual Change (Weekly Earnings)", 
+                                                                  "Annual Change (Annual Earnings)"))
+```
+
+### Dataset 3
+#### Selecting Relevant Columns
+```{r}
+geo_distrbution <- data_3 %>% 
+  select(Year,County,`NACE Rev 2 Economic Sector`,VALUE )
+```
+#### Rename Columns
+```{r}
+geo_distrbution <- geo_distrbution  %>% rename(Sector = `NACE Rev 2 Economic Sector`,
+                                               Euros = VALUE) 
+```
+
+## Data Aggregation
+### Aggregated Weekly Earning Estimates
+```{r}
+weekly_earning_estimates <- earning_estimates  %>% 
+  filter(Metrics == "Mean Weekly Earnings")
+
+
+
+agg_weekly_earning_estimates <- weekly_earning_estimates %>% group_by(Sector, Calender_Year, Age_Group) %>% 
+ summarise(
+    Total_Euros = sum(Euros, na.rm = TRUE))
+print(agg_weekly_earning_estimates)
+```
+
+### Aggregated Annual Earning Estimates
+```{r}
+annual_earning_estimates <- earning_estimates  %>% 
+  filter(Metrics == "Mean Annual Earnings")
+
+
+agg_annual_earning_estimates <- annual_earning_estimates %>% group_by(Sector, Calender_Year, Age_Group) %>% 
+  summarise(
+    Total_Euros = sum(Euros, na.rm = TRUE))
+print(agg_annual_earning_estimates)
+
+```
+
+### Aggregated Weekly Earning Percentiles
+```{r}
+weekly_earning_percentiles <- earning_percentiles  %>% 
+  filter(Metrics == "Weekly Earnings")
+
+agg_weekly_earning_percentiles <- weekly_earning_percentiles %>% group_by(Calender_Year, Percentile,Age_Group ) %>% 
+  summarise(
+    Total_Euros = sum(Euros, na.rm = TRUE))
+print(agg_weekly_earning_percentiles)
+```
+
+### Aggregated Annual Earning Percentiles
+```{r}
+annual_earning_percentiles <- earning_percentiles  %>% 
+  filter(Metrics == "Annual Earnings")
+
+agg_annual_earning_percentiles <- annual_earning_percentiles %>% group_by(Calender_Year, Percentile, Age_Group) %>% 
+  summarise(
+    Total_Euros = sum(Euros, na.rm = TRUE))
+print(agg_annual_earning_percentiles)
+```
+
+### Aggregated Geo Distribution
+```{r}
+geo_distrbution <- geo_distrbution %>% group_by(County, Year) %>% 
+  summarise(
+    Total_Euros = sum(Euros, na.rm = TRUE))
+print(geo_distrbution)
+```
+
+## Data Computation 
+### Merge weekly and annual earning estimates (Sector-based)
+```{r}
+earning_estimates <- full_join(weekly_earning_estimates, annual_earning_estimates, 
+                               by = c("Sector", "Calender_Year", "Age_Group"), 
+                               suffix = c("_Weekly", "_Annual"))
+```
+
+### Merge weekly and annual earning percentiles (Percentile-based)
+```{r}
+earning_percentiles <- full_join(weekly_earning_percentiles, agg_annual_earning_percentiles, 
+                                 by = c("Calender_Year", "Percentile", "Age_Group"), 
+                                 suffix = c("_Weekly", "_Annual"))
+```
+
+### Final merge of both tables based on Calender_Year and Age_Group
+```{r}
+final_merged_data <- full_join(earning_estimates, earning_percentiles, 
+                               by = c("Calender_Year", "Age_Group"))
+head(final_merged_data)                            
+```
+
+### Merge Geograpohical Data
+```{r}
+counties_sf <- st_read("ie.json")
+counties_sf$name <- paste0("Co. ", counties_sf$name)
+counties_data <- counties_sf %>%
+  left_join(geo_distrbution, by = c("name" = "County"))
+head(counties_data)
+```
+
+## Descriptive Analysis
+```{r}
+df <- final_merged_data
+
+# Checking structure of the data
+str(df)
+
+# Converting categorical variables to factors
+df$Sector <- as.factor(df$Sector)
+df$Age_Group <- as.factor(df$Age_Group)
+df$Calender_Year <- as.integer(df$Calender_Year)  # Ensure year is numeric
+
+
+# Summary statistics for Total_Euros (weekly & annual)
+summary(df[, c("Euros_Weekly", "Euros_Annual")])
+
+# More detailed stats
+describe(df[, c("Euros_Weekly", "Euros_Annual")])
+
+# Standard deviation & variance
+sd(df$Euros_Weekly, na.rm = TRUE)
+var(df$Euros_Weekly, na.rm = TRUE)
+
+sd(df$Euros_Annual, na.rm = TRUE)
+var(df$Euros_Annual, na.rm = TRUE)
+
+
+# Boxplot for Weekly vs Annual Earnings
+# Weekly Earnings Distribution
+fig_weekly <- plot_ly(df, 
+                      x = ~Age_Group, 
+                      y = ~Euros_Weekly, 
+                      type = "box", 
+                      boxmean = "sd", 
+                      marker = list(color = 'rgba(0, 123, 255, 0.7)', # Transparent blue
+                                    line = list(color = 'rgba(0, 123, 255, 1)', width = 2)), 
+                      fillcolor = 'rgba(0, 123, 255, 0.4)', 
+                      jitter = 0.3) %>%
+  layout(title = "Weekly Earnings Distribution by Age Group", 
+         title_x = 0.5, 
+         title_y = 1.1, 
+         xaxis = list(title = "Age Group",
+                      tickangle = 45, 
+                      titlefont = list(size = 14)),
+         yaxis = list(title = "Total Euros (Weekly)",
+                      titlefont = list(size = 14)),
+         plot_bgcolor = 'rgba(245, 245, 245, 1)',  # Light gray background
+         paper_bgcolor = 'rgba(255, 255, 255, 1)', # White paper background
+         showlegend = FALSE)
+
+fig_weekly  # Display the plot
+```
+This boxplot visualizes the distribution of weekly earnings across different age groups, revealing several key insights. Younger workers (15-24 years) exhibit the lowest median earnings, with relatively tight interquartile ranges (IQR), indicating less variation in earnings. As age increases, earnings generally rise, with the 40-49 and 50-59 age groups showing the highest median weekly earnings. However, earnings dispersion also increases with age, as evidenced by the wider IQRs and more frequent outliers in older groups, suggesting greater wage inequality among more experienced workers. The presence of many outliers, especially in older age groups, indicates that some individuals earn significantly above the typical range, likely due to senior positions, high-skilled professions, or bonuses. Interestingly, the 60+ age group sees a decline in median earnings compared to the peak earning years, potentially due to retirement transitions or part-time employment. This distribution highlights the expected career wage trajectory, where earnings grow with experience before tapering off later in life.
+
+```{r}
+# Annual Earnings Distribution 
+fig_annual <- plot_ly(df, 
+                      x = ~Age_Group, 
+                      y = ~Euros_Annual, 
+                      type = "box", 
+                      boxmean = "sd", 
+                      marker = list(color = 'rgba(255, 99, 132, 0.7)', # Transparent red
+                                    line = list(color = 'rgba(255, 99, 132, 1)', width = 2)), 
+                      fillcolor = 'rgba(255, 99, 132, 0.4)', 
+                      jitter = 0.3) %>%
+  layout(title = "Annual Earnings Distribution by Age Group", 
+         title_x = 0.5, 
+         title_y = 1.1, 
+         xaxis = list(title = "Age Group",
+                      tickangle = 45, 
+                      titlefont = list(size = 14)),
+         yaxis = list(title = "Total Euros (Annual)",
+                      titlefont = list(size = 14)),
+         plot_bgcolor = 'rgba(245, 245, 245, 1)',  # Light gray background
+         paper_bgcolor = 'rgba(255, 255, 255, 1)', # White paper background
+         showlegend = FALSE)
+
+fig_annual  # Display the plot
+```
+This boxplot of annual earnings across age groups highlights the expected income trajectory over a working lifetime. The median earnings increase steadily from younger age groups, peaking around the 40-49 and 50-59 age groups before slightly declining in the 60+ category. The widening interquartile range (IQR) as age increases suggests that income disparity grows with experience, likely due to differences in career progression, job roles, and seniority levels. Notably, the presence of numerous high-earning outliers, especially in the older age groups, reflects the impact of bonuses, executive positions, and specialized skills commanding higher salaries. The decline in median earnings for the 60+ group may be attributed to retirement transitions, reduced working hours, or a shift toward lower-paying roles post-retirement. Overall, the distribution underscores the economic benefits of experience and tenure while also showcasing increasing wage inequality among older professionals.
+
+```{r}
+# Checking correlation between numeric variables
+cor(df[, c("Euros_Weekly", "Euros_Annual")], use = "complete.obs")
+
+
+# Interactive- Bar Chart - Earnings Trend Over Time
+# Compute mean annual earnings per year
+trend_data <- df %>%
+  group_by(Calender_Year) %>%
+  summarise(Avg_Annual_Earnings = mean(Euros_Annual, na.rm = TRUE))
+
+# Interactive line chart
+p1 <- plot_ly(trend_data, x = ~Calender_Year, 
+              y = ~Avg_Annual_Earnings, 
+              type = "scatter", mode = "lines+markers",
+              name = "Annual Earnings", 
+              line = list(color = "blue")) %>%
+  layout(title = "Earnings Trend Over the Years",
+         xaxis = list(title = "Year"),
+         yaxis = list(title = "Earnings (€)"))
+
+p1  # Display the plot
+```
+The earnings trend in Ireland over the years exhibits a significant upward trajectory, particularly from 2015 onward, which aligns with the country’s post-recession economic recovery. Between 2011 and 2014, wages remained relatively stagnant, reflecting the lingering effects of the global financial crisis and Ireland’s subsequent austerity measures under the EU-IMF bailout program. However, from 2015 onward, the sharp rise in earnings coincides with Ireland’s economic boom, fueled by a surge in foreign direct investment (FDI), particularly in the tech and pharmaceutical sectors. The steep increase post-2019 could be linked to labor market tightening, minimum wage increases, and inflationary pressures, further exacerbated by the COVID-19 pandemic, which led to wage subsidies and support schemes that influenced overall earnings. Additionally, the rapid rise in salaries after 2020 reflects Ireland’s strong post-pandemic recovery, driven by multinational corporations and a resilient domestic economy. This trend underscores Ireland’s shift toward a high-income economy, albeit with concerns over cost-of-living increases and wage disparity across different sectors.
+
+```{r}
+# Interactive Heatmap - Earnings Percentile Distribution
+
+df_filtered <- df %>% 
+  filter(Percentile != "5th percentile")
+
+# Heatmap
+p2 <- plot_ly(df_filtered, x = ~Calender_Year, y = ~Percentile, z = ~Total_Euros, 
+              type = "heatmap", colorscale = "Blues") %>%
+  layout(title = "Heatmap of Annual Earnings Percentile Distribution",
+         xaxis = list(title = "Year"),
+         yaxis = list(title = "Percentile"),
+         colorbar = list(title = "Earnings (€)"))
+
+p2  # Display the plot
+```
+The heatmap illustrates the distribution of annual earnings percentiles over time, showing a clear upward trend, especially in the higher percentiles (e.g., the 95th and 90th percentiles). This suggests that high earners in Ireland have seen significant wage growth, while lower percentiles have experienced relatively stagnant wage progression. This aligns with Ireland's evolving labor market dynamics, where high-skilled and tech-sector jobs have surged, benefiting top earners. Meanwhile, wage growth for lower-income workers has been slower, possibly due to factors such as automation, labor outsourcing, and a rise in gig economy employment. The widening gap also reflects broader global trends of wage polarization, where knowledge-intensive industries offer higher rewards while traditional sectors struggle with wage stagnation.
+
+## Inferential Analysis
+```{r}
+# GLM model: Predicting Annual Earnings based on Weekly Earnings, Age Group, and Sector
+glm_model <- glm(Euros_Annual ~ Euros_Weekly + Age_Group + Sector,
+data = df, family = gaussian())
+
+# GAM model: Adding smoothing function for Weekly Earnings
+gam_model <- gam(Euros_Annual ~ s(Euros_Weekly) + Age_Group + Sector,
+data = df, family = gaussian())
+
+# Plotting GAM effect
+plot(gam_model, pages = 1)
+```
+The Generalized Additive Model (GAM) plot illustrates the smooth relationship between weekly earnings (Euros_Weekly) and its modeled effect. The curve suggests a nonlinear but generally increasing relationship, with a steeper slope at higher income levels, indicating accelerating gains for higher earners. The confidence bands (dashed lines) remain relatively narrow, suggesting strong model confidence across most of the range. However, at the lower end, the confidence bands widen slightly, possibly due to greater variance in earnings for lower-wage workers. This pattern aligns with Ireland's labor market trends, where wage growth disproportionately benefits higher-income brackets, particularly in tech and finance, while lower-income workers see more modest increases, reflecting potential wage polarization
+
+```{r}
+# GAM model: Adding smoothing function for Weekly Earnings
+gam_model <- gam(Euros_Annual ~ s(Euros_Weekly) + Age_Group + Sector,
+data = df, family = gaussian())
+
+# Plot GAM effect
+plot(gam_model, pages = 1)
+
+# Checking Residuals
+par(mfrow = c(2, 2)) # Multiple plots
+plot(glm_model)
+```
+The Residuals vs Fitted plot suggests potential heteroscedasticity, as residuals exhibit increasing spread at higher predicted values, indicating that variance grows with earnings. The Q-Q Residuals plot reveals right-skewed residuals, with extreme values deviating from the normal distribution, suggesting possible outliers among high earners. The Scale-Location plot further supports heteroscedasticity concerns, as the red trend line slopes upward, highlighting non-constant variance. Additionally, the Residuals vs Leverage plot identifies a few high-leverage points, particularly the observation labeled "87489," which may exert undue influence on the model. These diagnostics suggest that while the GAM effectively captures nonlinear trends,
+
+```{r}
+# Check R-squared for GAM
+rsq <- 1 - sum(resid(gam_model)^2) / sum((df$Euros_Annual - mean(df$Euros_Annual, na.rm = TRUE))^2)
+print(paste("R-squared of GAM model:", round(rsq, 3)))
+```
+
+The R-squared value of 0.718 means that the GAM explains about 71.8% of the variation in annual earnings. This shows that the model does a good job of capturing important patterns in the data, especially the non-linear relationships. However, 28.2% of the variation is still unexplained, which suggests that other factors like job type, education, or economic conditions might also affect earnings. Since the diagnostic plots showed some issues like unequal variance and possible outliers, improving the model by adding more variables or adjusting for these issues could make it even more accurate.
+
+## Geographical Analysis
+```{r}
+# Create a color palette for the map
+pal <- colorNumeric(palette = "YlGnBu", domain = counties_data$Total_Euros)
+
+
+# Filter data for two specific years (2011 and 2021)
+year_data_one <- counties_data %>%
+  filter(Year == 2011)
+
+year_data_two <- counties_data %>%
+  filter(Year == 2021)
+
+# Create color palette for Total Euros
+pal <- colorNumeric(palette = "YlGnBu", domain = counties_data$Total_Euros)
+
+# Create map for 2011
+map_one <- leaflet(data = year_data_one) %>%
+  addTiles() %>%
+  addPolygons(fillColor = ~pal(Total_Euros),
+              fillOpacity = 0.7,
+              color = "white",
+              weight = 1,
+              popup = ~paste(name, "<br>", "Total Earnings: €", Total_Euros),
+              label = ~name) %>%
+  addLegend(pal = pal, values = ~Total_Euros, opacity = 0.7, title = "Total Earnings (€)", position = "bottomright")
+
+# Create map for 2021
+map_two <- leaflet(data = year_data_two) %>%
+  addTiles() %>%
+  addPolygons(fillColor = ~pal(Total_Euros),
+              fillOpacity = 0.7,
+              color = "white",
+              weight = 1,
+              popup = ~paste(name, "<br>", "Total Earnings: €", Total_Euros),
+              label = ~name) %>%
+  addLegend(pal = pal, values = ~Total_Euros, opacity = 0.7, title = "Total Earnings (€)", position = "bottomright")
+
+# Combine both maps side by side
+browsable(tagList(
+  div(style = "display: inline-block; width: 48%;", map_one),
+  div(style = "display: inline-block; width: 48%;", map_two)
+))
+
+```
+Between 2011 and 2021, Ireland saw a significant increase in total industrial earnings across its counties, as depicted in the two maps. In 2011 (left image), earnings were relatively lower, with most counties displaying lighter shades of green, signifying lower total earnings. By 2021 (right image), the colors have transitioned to darker shades of blue, indicating a marked rise in earnings across all regions.
+
+This growth in industrial earnings correlates strongly with Ireland’s economic and industrial developments over the decade. Key events that influenced this trend include:
+
+*Economic Recovery Post-2008 Crisis*
+
+In 2011, Ireland was still recovering from the financial crisis, and industrial growth was sluggish. Government austerity measures were in place, and investment in key industries was still regaining momentum. This is reflected in the lower earnings in the 2011 map.
+
+*Growth of the Technology and Pharmaceutical Sectors*
+
+From 2011 to 2021, Ireland became a hub for multinational corporations, particularly in technology and pharmaceuticals. Companies like Apple, Google, Facebook, and Pfizer significantly expanded their operations. This influx of investment contributed to rising wages and industrial earnings, particularly in counties with strong industrial and tech presence.
+
+*Brexit (2016-2020) and Its Impact*
+
+The uncertainty and eventual execution of Brexit led to changes in trade dynamics, with some industries in Ireland benefiting from companies relocating operations from the UK. Certain counties with strong manufacturing and logistics sectors likely saw increased earnings due to these shifts.
+
+*COVID-19 and Industrial Resilience (2020-2021)*
+
+The pandemic had mixed effects on industries, but Ireland's pharmaceutical and tech industries remained robust, even experiencing growth due to increased global demand. The rise in earnings in 2021 suggests that certain industrial sectors thrived despite economic challenges.
+
+## Gender Pay Gap Analysis
+```{r}
+# Load and prepare data
+gender_data <- read_csv("DDA02.20250317T140346.csv") %>%
+  filter(Sex %in% c("Male", "Female")) %>%
+  rename(Metrics = `Statistic Label`,
+         Calender_Year = Year,
+         Sector = `NACE Rev 2 Sector`,
+         Age_Group = `Age Group`,
+         Euros = VALUE)
+
+# Calculate metrics
+gender_gap_enhanced <- gender_data %>%
+  filter(Metrics == "Mean Annual Earnings") %>%
+  group_by(Calender_Year, Sector) %>%
+  summarise(
+    Male_Earnings = mean(Euros[Sex == "Male"], na.rm = TRUE),
+    Female_Earnings = mean(Euros[Sex == "Female"], na.rm = TRUE),
+    Pay_Gap = (Male_Earnings - Female_Earnings) / Male_Earnings * 100,
+    Ratio = Female_Earnings / Male_Earnings,
+    Absolute_Gap = Male_Earnings - Female_Earnings,
+    .groups = 'drop'
+  )
+
+# Visualization
+p <- gender_gap_enhanced %>%
+  plot_ly() %>%
+  add_trace(
+    x = ~Calender_Year,
+    y = ~Pay_Gap,
+    color = ~Sector,
+    type = 'scatter',
+    mode = 'lines+markers',
+    line = list(width = 3),
+    marker = list(size = 10),
+    text = ~paste0(
+      "<b>", Sector, "</b><br>",
+      "Year: ", Calender_Year, "<br>",
+      "Pay Gap: ", round(Pay_Gap, 1), "%<br>",
+      "Male: €", format(round(Male_Earnings), big.mark = ","), "<br>",
+      "Female: €", format(round(Female_Earnings), big.mark = ",")),
+    hoverinfo = 'text'
+  ) %>%
+  layout(
+    title = list(
+      text = "<b>Gender Pay Gap by Economic Sector</b>",
+      x = 0.05,
+      font = list(size = 20)
+    ),
+    xaxis = list(
+      title = "Year",
+      dtick = 1,
+      gridcolor = '#f0f0f0',
+      showgrid = TRUE
+    ),
+    yaxis = list(
+      title = "Pay Gap (%)",
+      ticksuffix = "%",
+      range = c(
+        min(gender_gap_enhanced$Pay_Gap, na.rm = TRUE) * 1.1,
+        max(gender_gap_enhanced$Pay_Gap, na.rm = TRUE) * 1.1
+      ),
+      gridcolor = '#f0f0f0',
+      zerolinecolor = '#333',
+      zerolinewidth = 2
+    ),
+    legend = list(
+      orientation = 'h',
+      x = 0.5,
+      xanchor = 'center',
+      y = -0.4,  # Slightly lower to provide more space
+      font = list(size = 12)
+    ),
+    margin = list(t = 80, b = 150),  # Increased bottom margin
+    plot_bgcolor = 'rgba(0,0,0,0)',
+    paper_bgcolor = 'rgba(0,0,0,0)'
+  )
+
+# For Quarto, increase figure height
+#| echo: false
+#| warning: false
+#| message: false
+#| layout: l-body-outset
+#| fig-width: 16
+#| fig-height: 18  # Increased from 14 to 18
+#| fig-align: center
+
+# Explicitly print the plot for Quarto
+p
+```
+
+
+
+
+
+
